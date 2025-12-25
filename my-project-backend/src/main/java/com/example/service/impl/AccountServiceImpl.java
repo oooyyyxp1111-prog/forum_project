@@ -183,6 +183,14 @@ public class AccountServiceImpl extends ServiceImpl<AccountMapper, Account> impl
         return success ? null : "未知错误，请联系管理员";
     }
 
+    @Override
+    public void modifyPassword(int id, String newPassword) {
+        this.update()
+                .eq("id", id)
+                .set("password", passwordEncoder.encode(newPassword))
+                .update();
+    }
+
     /**
      * 移除Redis中存储的邮件验证码
      * @param email 电邮
