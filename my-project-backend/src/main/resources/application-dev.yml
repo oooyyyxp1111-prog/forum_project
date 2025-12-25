@@ -14,7 +14,7 @@ spring:
     password: admin
     virtual-host: /
   datasource:
-    url: jdbc:mysql://localhost:3306/study
+    url: jdbc:mysql://localhost:3306/study_main
     username: root
     password: 123456
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -44,4 +44,5 @@ spring:
     username: 'minio'
     password: 'password'
   weather:
-    key: 115bcaf74fb24f73844365290d85862b
+    api-host: 'kv487n5dxd.re.qweatherapi.com'
+    key: 8d3b57acbb0745adbdf56f8052fa8779

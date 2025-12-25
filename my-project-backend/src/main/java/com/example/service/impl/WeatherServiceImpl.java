@@ -29,13 +29,16 @@ public class WeatherServiceImpl implements WeatherService {
     @Value("${spring.weather.key}")
     String key;
 
+    @Value("${spring.weather.api-host}")
+    String apiHost;
+
     public WeatherVO fetchWeather(double longitude, double latitude){
         return fetchFromCache(longitude, latitude);
     }
 
     private WeatherVO fetchFromCache(double longitude, double latitude){
         JSONObject geo = this.decompressStingToJson(rest.getForObject(
-                "https://geoapi.qweather.com/v2/city/lookup?location="+longitude+","+latitude+"&key="+key, byte[].class));
+                "https://" + apiHost + "/geo/v2/city/lookup?location="+longitude+","+latitude+"&key="+key, byte[].class));
         if(geo == null) return null;
         JSONObject location = geo.getJSONArray("location").getJSONObject(0);
         int id = location.getInteger("id");
@@ -53,11 +56,11 @@ public class WeatherServiceImpl implements WeatherService {
         WeatherVO vo = new WeatherVO();
         vo.setLocation(location);
         JSONObject now = this.decompressStingToJson(rest.getForObject(
-                "https://devapi.qweather.com/v7/weather/now?location="+id+"&key="+key, byte[].class));
+                "https://" + apiHost + "/v7/weather/now?location="+id+"&key="+key, byte[].class));
         if(now == null) return null;
         vo.setNow(now.getJSONObject("now"));
         JSONObject hourly = this.decompressStingToJson(rest.getForObject(
-                "https://devapi.qweather.com/v7/weather/24h?location="+id+"&key="+key, byte[].class));
+                "https://" + apiHost + "/v7/weather/24h?location="+id+"&key="+key, byte[].class));
         if(hourly == null) return null;
         vo.setHourly(new JSONArray(hourly.getJSONArray("hourly").stream().limit(5).toList()));
         return vo;
