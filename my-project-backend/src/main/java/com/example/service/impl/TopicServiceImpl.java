@@ -104,14 +104,15 @@ public class TopicServiceImpl extends ServiceImpl<TopicMapper, Topic> implements
             return "文章内容太多，发文失败！";
         if(!types.contains(vo.getType()))
             return "文章类型非法！";
-        baseMapper.update(null, Wrappers.<Topic>update()
+        int result = baseMapper.update(null, Wrappers.<Topic>update()
                 .eq("uid", uid)
                 .eq("id", vo.getId())
+                .eq("locked", 0)
                 .set("title", vo.getTitle())
                 .set("content", vo.getContent().toString())
                 .set("type", vo.getType())
         );
-        return null;
+        return result > 0 ? null : "文章被锁定，无法进行修改";
     }
 
     @Override
@@ -196,6 +197,14 @@ public class TopicServiceImpl extends ServiceImpl<TopicMapper, Topic> implements
     }
 
     @Override
+    public void setTopicLocked(int tid, boolean locked) {
+        baseMapper.update(null, Wrappers.<Topic>update()
+                .eq("id", tid)
+                .set("locked", locked)
+        );
+    }
+
+    @Override
     public List<TopicPreviewVO> listTopicCollects(int uid) {
         return baseMapper.collectTopics(uid)
                 .stream()
@@ -210,7 +219,7 @@ public class TopicServiceImpl extends ServiceImpl<TopicMapper, Topic> implements
     @Override
     public JSONObject listAllTopicByPage(int page, int size) {
         Page<Topic> topicPage = baseMapper.selectPage(Page.of(page, size), Wrappers.<Topic>query()
-                .select("id", "title", "uid", "type", "time", "top")
+                .select("id", "title", "uid", "type", "time", "top", "locked")
                 .orderByDesc("time"));
         List<TopicPreviewVO> list = topicPage.getRecords().stream().map(this::resolveToPreview).toList();
         JSONObject object = new JSONObject();

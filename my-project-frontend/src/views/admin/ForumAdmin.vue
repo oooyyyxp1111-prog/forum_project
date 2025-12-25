@@ -1,6 +1,12 @@
 <script setup>
 import {reactive, ref, watchEffect} from "vue";
-import {apiForumTopicAllList, apiForumTopicDelete, apiForumTopicTop, apiForumTypes} from "@/net/api/forum";
+import {
+    apiForumTopicAllList,
+    apiForumTopicDelete,
+    apiForumTopicLocked,
+    apiForumTopicTop,
+    apiForumTypes
+} from "@/net/api/forum";
 import {User} from "@element-plus/icons-vue";
 import {useStore} from "@/store";
 import {ElMessage, ElMessageBox} from "element-plus";
@@ -32,6 +38,13 @@ const deleteTopic = id => {
 
 const topTopic = (tid, status) => {
     apiForumTopicTop({ tid, status }, () => {
+        ElMessage.success('帖子置顶状态更新成功')
+        refreshList()
+    })
+}
+
+const lockTopic = (tid, status) => {
+    apiForumTopicLocked({ tid, status }, () => {
         ElMessage.success('帖子置顶状态更新成功')
         refreshList()
     })
@@ -82,7 +95,8 @@ apiForumTypes(data => types.value = data)
             <el-table-column label="操作" width="270" fixed="right" align="center">
                 <template #default="{ row }">
                     <el-button size="small" type="info" plain>屏蔽</el-button>
-                    <el-button size="small" type="warning" plain>锁定</el-button>
+                    <el-button size="small" type="warning" @click="lockTopic(row.id, false)" v-if="row.locked">取消</el-button>
+                    <el-button size="small" type="warning" @click="lockTopic(row.id, true)" plain v-else>锁定</el-button>
                     <el-button size="small" type="success" @click="topTopic(row.id, false)" v-if="row.top">取消</el-button>
                     <el-button size="small" type="success" @click="topTopic(row.id, true)" plain v-else>置顶</el-button>
                     <el-button size="small" type="danger" plain @click="deleteTopic(row.id)">删除</el-button>

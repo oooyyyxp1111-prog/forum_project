@@ -40,4 +40,13 @@ public class ForumAdminController {
         );
         return RestBean.success();
     }
+
+    @PostMapping("/locked")
+    public RestBean<Void> setLocked(@RequestBody JSONObject object) {
+        service.setTopicLocked(
+                object.getIntValue("tid"),
+                object.getBooleanValue("status")
+        );
+        return RestBean.success();
+    }
 }

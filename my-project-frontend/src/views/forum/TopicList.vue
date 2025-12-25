@@ -10,7 +10,7 @@ import {
     EditPen,
     Link,
     Picture,
-    Microphone, CircleCheck, Star, FolderOpened, ArrowRightBold
+    Microphone, CircleCheck, Star, FolderOpened, ArrowRightBold, Lock
 } from "@element-plus/icons-vue";
 import Weather from "@/components/Weather.vue";
 import {computed, onMounted, reactive, ref, watch} from "vue";
@@ -147,6 +147,13 @@ onMounted(() => {
                                 </div>
                             </div>
                             <div style="margin-top: 5px">
+                                <el-tag size="small" effect="dark" type="warning" disable-transitions
+                                        style="margin-right: 10px;" v-if="item.locked">
+                                    <el-icon>
+                                        <Lock/>
+                                    </el-icon>
+                                    已锁定
+                                </el-tag>
                                 <topic-tag :type="item.type"/>
                                 <span style="font-weight: bold;margin-left: 7px">{{item.title}}</span>
                             </div>
