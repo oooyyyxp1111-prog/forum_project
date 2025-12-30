@@ -1,30 +1,42 @@
 <script setup>
 import {ref} from "vue";
 import {CloseBold} from "@element-plus/icons-vue";
+import {apiChatWithAI} from "@/net/api/ai";
 
+const chatLoading = ref(false)
 const isOpen = ref(false)
 const inputText = ref('')
 
 const messages = ref([])
 
 const sendMessage = () => {
-    if(inputText.value) {
+    if(inputText.value.trim() !== '') {
         messages.value.push({
             type: 'user',
             text: inputText.value,
             timestamp: new Date()
         })
-    }
 
-    setTimeout(() => {
+        inputText.value = ''
+        chatLoading.value = true
+
         messages.value.push({
             type: 'assistant',
-            text: '这是AI的回复实例',
+            text: '正在生成中...',
             timestamp: new Date()
         })
-    }, 1000)
 
-    inputText.value = ''
+        const context = [ ...messages.value ]
+        context.length -= 1
+
+        apiChatWithAI(context, data => {
+            messages.value[messages.value.length - 1].text = data
+            chatLoading.value = false
+        }, () => {
+            messages.value[messages.value.length - 1].text = '生成失败，请重试'
+            chatLoading.value = false
+        })
+    }
 }
 </script>
 
