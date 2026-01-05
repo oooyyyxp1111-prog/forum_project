@@ -19,6 +19,10 @@ spring:
           enabled: true
           max-attempts: 3
           initial-interval: 1000ms
+  elasticsearch:
+    uris: localhost:9200
+    username: elastic
+    password: 123456
   datasource:
     url: jdbc:mysql://localhost:3306/study_main
     username: root
