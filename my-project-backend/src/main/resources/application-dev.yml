@@ -54,4 +54,5 @@ spring:
     key: 8d3b57acbb0745adbdf56f8052fa8779
   ai:
     deepseek:
-      api-key: 'sk-daa97a763da84b899c8d23b70a61d728'
+      api-key: 'application-d5f62d037aedf3d2331980c6b3b4054d'
+      base-url: 'http://localhost:8099/chat/api/019b6eeb-bebc-7493-b604-23ca6ff2c8bf'

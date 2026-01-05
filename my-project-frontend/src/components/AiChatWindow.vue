@@ -161,6 +161,7 @@ const sendMessage = () => {
                     background: white;
                     font-size: 14px;
                     padding: 8px 14px;
+                    min-height: 16px;
                     border-radius: 18px;
                     word-wrap: break-word;
                     overflow: hidden;
