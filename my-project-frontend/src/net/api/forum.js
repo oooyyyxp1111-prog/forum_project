@@ -73,3 +73,6 @@ export const apiForumUserTopic = (success) =>
 
 export const apiForumUserTopicDelete = (tid, success) =>
     get(`api/forum/delete-topic?tid=${tid}`, success)
+
+export const apiTopicSearch = (keyword, success) =>
+    get(`/api/forum/search-topic?keyword=${keyword}`, success)

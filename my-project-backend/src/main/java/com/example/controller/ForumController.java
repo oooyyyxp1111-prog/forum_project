@@ -140,4 +140,9 @@ public class ForumController {
         topicService.deleteTopic(tid, uid);
         return RestBean.success();
     }
+
+    @GetMapping("/search-topic")
+    public RestBean<List<TopicSearchVO>> searchTopic(@RequestParam String keyword){
+        return RestBean.success(topicService.searchTopic(keyword));
+    }
 }
