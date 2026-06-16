@@ -54,6 +54,7 @@
             </el-avatar>
           </div>
           <div class="message-bubble" :class="{ 'tool-bubble': msg.role === 'tool' }">
+            <div v-if="msg.fileName" class="file-attach-badge">📄 {{ msg.fileName }}</div>
             <div class="message-content" v-html="renderMarkdown(msg.content)"></div>
             <div v-if="idx === messages.length - 1 && isLoading" class="typing-indicator">
               <span class="dot"></span><span class="dot"></span><span class="dot"></span>
@@ -71,9 +72,20 @@
               action="">
             <el-button :icon="Picture" circle text />
           </el-upload>
+          <span class="toolbar-label">图片</span>
+          <el-button :icon="Document" circle text @click="triggerFileUpload" />
+          <span class="toolbar-label">文件</span>
+          <input ref="fileInputRef" type="file" hidden
+                 accept=".txt,.md,.csv,.json,.xml,.yaml,.yml,.log,.py,.java,.js,.ts,.vue,.html,.css,.sh,.sql,.rs,.go,.kt"
+                 @change="handleTextFileUpload" />
           <span v-if="uploadedImages.length > 0" class="upload-preview">
             <el-tag closable @close="uploadedImages = []" size="small">
-              {{ uploadedImages.length }} 张图片已上传
+              {{ uploadedImages.length }} 张图片
+            </el-tag>
+          </span>
+          <span v-if="uploadedFileContent" class="upload-preview">
+            <el-tag closable @close="uploadedFileContent = ''; uploadedFileName = ''" type="warning" size="small">
+              📄 {{ uploadedFileName }}
             </el-tag>
           </span>
         </div>
@@ -104,14 +116,15 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import { useStore } from '@/store'
-import { Plus, Delete, ChatDotSquare, Promotion, Picture } from '@element-plus/icons-vue'
+import { Plus, Delete, ChatDotSquare, Promotion, Picture, Document } from '@element-plus/icons-vue'
 import MarkdownIt from 'markdown-it'
 import {
   apiConversationList,
   apiConversationCreate,
   apiConversationDelete,
   apiConversationMessages,
-  apiChatWithConversation
+  apiChatWithConversation,
+  apiUploadTextFile
 } from '@/net/api/ai'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -125,6 +138,9 @@ const inputText = ref('')
 const isLoading = ref(false)
 const enableWebSearch = ref(false)
 const uploadedImages = ref([])
+const uploadedFileContent = ref('')
+const uploadedFileName = ref('')
+const fileInputRef = ref(null)
 const messagesRef = ref(null)
 const switchLoading = ref(false)
 
@@ -149,6 +165,8 @@ function createNewConversation() {
     activeConversationId.value = data.id
     messages.value = []
     inputText.value = ''
+    uploadedFileContent.value = ''
+    uploadedFileName.value = ''
   })
 }
 
@@ -156,24 +174,32 @@ function switchConversation(id) {
   if (isLoading.value) return
   activeConversationId.value = id
   switchLoading.value = true
+  // 清除临时上传的附件
+  uploadedImages.value = []
+  uploadedFileContent.value = ''
+  uploadedFileName.value = ''
   apiConversationMessages(id, data => {
-    messages.value = (data || []).map(m => ({
-      role: m.type,
-      content: parseMessageContent(m.text),
-      messageType: m.messageType
-    }))
+    messages.value = (data || []).map(m => {
+      let text = m.text
+      let fileName = null
+      let fileContent = null
+      try {
+        const obj = JSON.parse(m.text)
+        text = obj.text || text
+        fileName = obj.fileName || null
+        fileContent = obj.fileContent || null
+      } catch { /* 纯文本消息，直接使用 */ }
+      return {
+        role: m.type,
+        content: text,
+        messageType: m.messageType,
+        fileName: fileName,
+        fileContent: fileContent
+      }
+    })
     switchLoading.value = false
     scrollToBottom()
   })
-}
-
-function parseMessageContent(content) {
-  try {
-    const obj = JSON.parse(content)
-    return obj.text || content
-  } catch {
-    return content
-  }
 }
 
 function deleteConversation(id) {
@@ -207,6 +233,26 @@ function handleImageUpload(file) {
   return false
 }
 
+function triggerFileUpload() {
+  fileInputRef.value?.click()
+}
+
+function handleTextFileUpload(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  const formData = new FormData()
+  formData.append('file', file)
+  apiUploadTextFile(formData, data => {
+    uploadedFileContent.value = data.content
+    uploadedFileName.value = data.filename
+    ElMessage.success(`已读取「${data.filename}」(共 ${data.size} 字符)`)
+  }, () => {
+    ElMessage.error('文件上传失败')
+  })
+  event.target.value = ''
+}
+
 async function sendMessage() {
   const text = inputText.value.trim()
   if (!text && uploadedImages.value.length === 0) return
@@ -221,14 +267,18 @@ async function sendMessage() {
   }
   if (!activeConversationId.value) return
 
+  const currentFileContent = uploadedFileContent.value
+  const currentFileName = uploadedFileName.value
+  const currentImages = [...uploadedImages.value]
+  const currentText = text
+
   const userMsg = {
     role: 'user',
-    content: text || '(图片)',
-    messageType: uploadedImages.value.length > 0 ? 'image' : 'text'
+    content: currentText || (currentImages.length > 0 ? '(图片)' : ''),
+    messageType: currentImages.length > 0 ? 'image' : 'text',
+    fileName: currentFileContent ? currentFileName : null
   }
   messages.value.push(userMsg)
-  const currentText = text
-  const currentImages = [...uploadedImages.value]
   inputText.value = ''
   uploadedImages.value = []
 
@@ -241,6 +291,12 @@ async function sendMessage() {
     text: currentText || '请分析这张图片',
     imageUrls: currentImages,
     enableWebSearch: enableWebSearch.value
+  }
+  if (currentFileContent) {
+    body.fileContent = currentFileContent
+    body.fileName = currentFileName
+    uploadedFileContent.value = ''
+    uploadedFileName.value = ''
   }
 
   apiChatWithConversation(
@@ -475,11 +531,21 @@ function scrollToBottom() {
       &:last-child { margin: 0; }
     }
 
-    :deep(pre) {
+      :deep(pre) {
       background: var(--el-fill-color-darker);
       padding: 12px;
       border-radius: 8px;
       overflow-x: auto;
+    }
+
+    .file-attach-badge {
+      display: inline-block;
+      font-size: 12px;
+      background: var(--el-color-warning-light-9);
+      color: var(--el-color-warning-dark-2);
+      padding: 2px 10px;
+      border-radius: 4px;
+      margin-bottom: 8px;
     }
 
     :deep(code) {
@@ -523,6 +589,12 @@ function scrollToBottom() {
 
     .upload-preview {
       font-size: 12px;
+    }
+
+    .toolbar-label {
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+      margin-right: 8px;
     }
   }
 

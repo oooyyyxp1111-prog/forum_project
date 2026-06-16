@@ -8,5 +8,6 @@ import java.util.List;
 public interface AiService {
     SseEmitter chatWithAi(JSONArray content);
 
-    SseEmitter chatWithAi(int conversationId, int userId, String text, List<String> imageUrls, boolean enableWebSearch);
+    SseEmitter chatWithAi(int conversationId, int userId, String text, List<String> imageUrls,
+                          boolean enableWebSearch, String fileContent, String fileName);
 }

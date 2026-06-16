@@ -39,6 +39,10 @@ export const apiConversationDelete = (id, success) =>
 export const apiConversationMessages = (id, success) =>
     get(`/api/ai/conversations/${id}/messages`, success)
 
+// 上传文本文件，返回文件内容
+export const apiUploadTextFile = (file, success, failure) =>
+    post('/api/file/text', file, success, failure)
+
 // SSE 流式对话（按会话ID）- 新版
 export const apiChatWithConversation = async (conversationId, body, onMessage, onError, onComplete, onToolCall, onTitle) => {
     try {

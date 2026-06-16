@@ -93,7 +93,8 @@ public class AiServiceImpl implements AiService {
 
     @Override
     public SseEmitter chatWithAi(int conversationId, int userId, String text,
-                                 List<String> imageUrls, boolean enableWebSearch) {
+                                 List<String> imageUrls, boolean enableWebSearch,
+                                 String fileContent, String fileName) {
         SseEmitter emitter = new SseEmitter(300000L);
 
         try {
@@ -101,20 +102,46 @@ public class AiServiceImpl implements AiService {
             List<JSONObject> history = conversationService.loadMessages(userId, conversationId);
             List<Message> messages = new ArrayList<>();
 
-            // 2. 将历史消息转为 Spring AI Message
+            // 2. 将历史消息转为 Spring AI Message（含文件内容重建）
             for (JSONObject msg : history) {
                 String role = msg.getString("type");
-                String content = msg.getString("text");
+                String rawContent = msg.getString("text");
                 if ("user".equals(role)) {
-                    messages.add(new UserMessage(content));
+                    // 解析存储的 JSON，若有 fileContent 则重建完整上下文
+                    try {
+                        JSONObject contentObj = JSONObject.parseObject(rawContent);
+                        String userText = contentObj.getString("text");
+                        String fn = contentObj.getString("fileName");
+                        String fc = contentObj.getString("fileContent");
+                        if (fc != null && !fc.isEmpty()) {
+                            String restored = "用户上传了文件「" + fn + "」，以下是文件内容：\n\n"
+                                    + fc + "\n\n"
+                                    + "用户的问题：" + (userText != null ? userText : "");
+                            messages.add(new UserMessage(restored));
+                        } else {
+                            messages.add(new UserMessage(userText != null ? userText : ""));
+                        }
+                    } catch (Exception e) {
+                        // 兼容旧格式：直接作为纯文本
+                        messages.add(new UserMessage(rawContent));
+                    }
                 } else if ("assistant".equals(role)) {
-                    messages.add(new AssistantMessage(content));
+                    messages.add(new AssistantMessage(rawContent));
                 }
             }
 
-            // 3. 构建当前用户消息（含可能的图片）
+            // 3. 将文件内容拼入用户消息文本
+            String finalText = text;
+            if (fileContent != null && !fileContent.isEmpty()) {
+                String fileLabel = (fileName != null && !fileName.isEmpty()) ? fileName : "上传的文件";
+                finalText = "用户上传了文件「" + fileLabel + "」，以下是文件内容：\n\n"
+                        + fileContent + "\n\n"
+                        + "用户的问题：" + text;
+            }
+
+            // 4. 构建当前用户消息（含可能的图片）
             if (imageUrls != null && !imageUrls.isEmpty()) {
-                var userMsgBuilder = UserMessage.builder().text(text);
+                var userMsgBuilder = UserMessage.builder().text(finalText);
                 for (String url : imageUrls) {
                     MimeType mime = detectImageMimeType(url);
                     userMsgBuilder.media(Media.builder()
@@ -124,14 +151,18 @@ public class AiServiceImpl implements AiService {
                 }
                 messages.add(userMsgBuilder.build());
             } else {
-                messages.add(new UserMessage(text));
+                messages.add(new UserMessage(finalText));
             }
 
-            // 4. 保存用户消息到数据库
+            // 5. 保存用户消息到数据库（原文与文件内容分离存储）
             JSONObject userContent = new JSONObject();
-            userContent.put("text", text);
+            userContent.put("text", text != null ? text : "");
             if (imageUrls != null && !imageUrls.isEmpty()) {
                 userContent.put("imageUrls", imageUrls);
+            }
+            if (fileContent != null && !fileContent.isEmpty()) {
+                userContent.put("fileName", fileName);
+                userContent.put("fileContent", fileContent);
             }
             conversationService.saveMessage(userId, conversationId, "user",
                     userContent.toJSONString(),

@@ -35,6 +35,8 @@ public class AiChatController {
                 ? body.getJSONArray("imageUrls").toList(String.class)
                 : List.of();
         boolean enableWebSearch = body.getBooleanValue("enableWebSearch");
-        return service.chatWithAi(conversationId, userId, text, imageUrls, enableWebSearch);
+        String fileContent = body.getString("fileContent");
+        String fileName = body.getString("fileName");
+        return service.chatWithAi(conversationId, userId, text, imageUrls, enableWebSearch, fileContent, fileName);
     }
 }
