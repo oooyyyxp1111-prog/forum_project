@@ -1,4 +1,5 @@
 import {fetchPost, get, post} from "@/net";
+import axios from "axios";
 import {accessHeader} from '@/net/index.js'
 
 // 旧的 SSE 聊天函数 - 保留给浮动 AiChatWindow 使用
@@ -41,7 +42,7 @@ export const apiConversationMessages = (id, success) =>
 // SSE 流式对话（按会话ID）- 新版
 export const apiChatWithConversation = async (conversationId, body, onMessage, onError, onComplete) => {
     try {
-        const response = await fetch(`/api/ai/chat/${conversationId}`, {
+        const response = await fetch(`${axios.defaults.baseURL}/api/ai/chat/${conversationId}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
