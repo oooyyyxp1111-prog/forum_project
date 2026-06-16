@@ -63,3 +63,5 @@ spring:
     deepseek:
       api-key: '***REMOVED***'
       base-url: 'https://api.deepseek.com'
+    tavily:
+      api-key: 'your-tavily-api-key-placeholder'
