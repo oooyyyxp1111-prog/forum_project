@@ -30,7 +30,7 @@ export const apiConversationCreate = (title, success) =>
 
 // 删除对话
 export const apiConversationDelete = (id, success) =>
-    fetch(`/api/ai/conversations/${id}`, {
+    fetch(`${axios.defaults.baseURL}/api/ai/conversations/${id}`, {
         method: 'DELETE',
         headers: accessHeader()
     }).then(r => r.json()).then(data => success && success(data))
@@ -40,7 +40,7 @@ export const apiConversationMessages = (id, success) =>
     get(`/api/ai/conversations/${id}/messages`, success)
 
 // SSE 流式对话（按会话ID）- 新版
-export const apiChatWithConversation = async (conversationId, body, onMessage, onError, onComplete) => {
+export const apiChatWithConversation = async (conversationId, body, onMessage, onError, onComplete, onToolCall, onTitle) => {
     try {
         const response = await fetch(`${axios.defaults.baseURL}/api/ai/chat/${conversationId}`, {
             method: 'POST',
@@ -63,23 +63,28 @@ export const apiChatWithConversation = async (conversationId, body, onMessage, o
             buffer = lines.pop() || '';
 
             for (const line of lines) {
-                if (line.startsWith('event: ')) {
-                    const eventType = line.slice(7).trim();
+                if (line.startsWith('event:')) {
+                    const eventType = line.slice(6).trim();
                     if (eventType === 'done') {
                         onComplete && onComplete();
                         return;
                     }
-                } else if (line.startsWith('data: ')) {
+                } else if (line.startsWith('data:')) {
+                    const dataStr = line.slice(5).trim();
                     try {
-                        const data = JSON.parse(line.slice(6));
+                        const data = JSON.parse(dataStr);
                         if (data.type === 'text') {
                             onMessage && onMessage(data.content);
+                        } else if (data.type === 'tool_call') {
+                            onToolCall && onToolCall(data);
+                        } else if (data.type === 'title') {
+                            onTitle && onTitle(data.content);
                         } else if (data.type === 'error') {
                             onError && onError(data.content || '未知错误');
                             return;
                         }
                     } catch (e) {
-                        onMessage && onMessage(line.slice(6));
+                        onMessage && onMessage(dataStr);
                     }
                 }
             }

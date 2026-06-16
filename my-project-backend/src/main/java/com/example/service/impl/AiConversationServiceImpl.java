@@ -92,4 +92,15 @@ public class AiConversationServiceImpl
         }
         return result;
     }
+
+    @Override
+    @Transactional
+    public void updateTitle(int userId, int conversationId, String title) {
+        AiConversation conv = this.getById(conversationId);
+        if (conv == null || !conv.getUserId().equals(userId))
+            throw new IllegalArgumentException("无权访问此对话");
+        conv.setTitle(title);
+        conv.setUpdatedTime(new Date());
+        this.updateById(conv);
+    }
 }

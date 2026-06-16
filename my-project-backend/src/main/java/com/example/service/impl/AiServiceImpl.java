@@ -2,6 +2,7 @@ package com.example.service.impl;
 
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import com.example.entity.dto.AiConversation;
 import com.example.service.AiConversationService;
 import com.example.service.AiService;
 import com.example.service.ForumTools;
@@ -11,12 +12,18 @@ import jakarta.annotation.Resource;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.content.Media;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.MimeType;
 import org.springframework.util.MimeTypeUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -87,7 +94,7 @@ public class AiServiceImpl implements AiService {
     @Override
     public SseEmitter chatWithAi(int conversationId, int userId, String text,
                                  List<String> imageUrls, boolean enableWebSearch) {
-        SseEmitter emitter = new SseEmitter(300000L); // 5分钟超时
+        SseEmitter emitter = new SseEmitter(300000L);
 
         try {
             // 1. 从数据库加载历史消息
@@ -130,64 +137,131 @@ public class AiServiceImpl implements AiService {
                     userContent.toJSONString(),
                     (imageUrls != null && !imageUrls.isEmpty()) ? "image" : "text");
 
-            // 5. 构建 ChatClient 请求
-            var promptSpec = chatClient.prompt().messages(messages);
-
-            // 6. 注册工具
+            // 5. 注册工具
             List<ToolCallback> toolCallbacks = new ArrayList<>();
             Collections.addAll(toolCallbacks, ToolCallbacks.from(forumTools));
             if (enableWebSearch) {
                 Collections.addAll(toolCallbacks, ToolCallbacks.from(webSearchTools));
             }
-            promptSpec.toolCallbacks(toolCallbacks.toArray(new ToolCallback[0]));
 
-            // 7. 流式调用，发送 SSE
-            Flux<String> flux = promptSpec.stream().content();
+            // 6. 第一轮：非流式调用，检测工具调用
+            ToolCallingChatOptions options = ToolCallingChatOptions.builder()
+                    .internalToolExecutionEnabled(false)
+                    .build();
+            Prompt prompt = new Prompt(messages, options);
+            ChatResponse firstResponse = chatClient.prompt(prompt)
+                    .toolCallbacks(toolCallbacks.toArray(new ToolCallback[0]))
+                    .call()
+                    .chatResponse();
+
+            AssistantMessage assistantMessage = firstResponse.getResult().getOutput();
             StringBuilder fullReply = new StringBuilder();
 
-            flux.subscribe(
-                    chunk -> {
-                        fullReply.append(chunk);
-                        try {
-                            JSONObject json = new JSONObject();
-                            json.put("type", "text");
-                            json.put("content", chunk);
-                            emitter.send(SseEmitter.event()
-                                    .name("message")
-                                    .data(json.toJSONString()));
-                        } catch (IOException e) {
-                            // ignore
-                        }
-                    },
-                    error -> {
-                        try {
-                            JSONObject errJson = new JSONObject();
-                            errJson.put("type", "error");
-                            errJson.put("content", error.getMessage() != null ? error.getMessage() : "unknown");
-                            emitter.send(SseEmitter.event()
-                                    .name("error")
-                                    .data(errJson.toJSONString()));
-                        } catch (IOException e) {
-                            // ignore
-                        }
-                        emitter.completeWithError(error);
-                    },
-                    () -> {
-                        // 8. 保存完整 AI 回复到数据库
-                        if (fullReply.length() > 0) {
-                            conversationService.saveMessage(userId, conversationId, "assistant",
-                                    fullReply.toString(), "text");
-                        }
-                        try {
-                            emitter.send(SseEmitter.event()
-                                    .name("done")
-                                    .data(""));
-                        } catch (IOException e) {
-                            // ignore
-                        }
-                        emitter.complete();
+            if (!CollectionUtils.isEmpty(assistantMessage.getToolCalls())) {
+                // 7. 手动执行工具，并推送 tool_call SSE 事件
+                List<ToolResponseMessage.ToolResponse> toolResponses = new ArrayList<>();
+
+                for (var toolCall : assistantMessage.getToolCalls()) {
+                    // 推工具调用事件到前端
+                    JSONObject toolEvent = new JSONObject();
+                    toolEvent.put("type", "tool_call");
+                    toolEvent.put("tool", toolCall.name());
+                    try {
+                        JSONObject argObj = JSONObject.parseObject(toolCall.arguments());
+                        toolEvent.put("input", argObj);
+                    } catch (Exception e) {
+                        toolEvent.put("input", toolCall.arguments());
                     }
-            );
+                    emitter.send(SseEmitter.event()
+                            .name("message")
+                            .data(toolEvent.toJSONString()));
+
+                    // 执行工具
+                    for (ToolCallback callback : toolCallbacks) {
+                        if (callback.getToolDefinition().name().equals(toolCall.name())) {
+                            String result = callback.call(toolCall.arguments(), new ToolContext(java.util.Map.of()));
+                            toolResponses.add(new ToolResponseMessage.ToolResponse(
+                                    toolCall.id(), toolCall.name(), result));
+                            break;
+                        }
+                    }
+                }
+
+                // 8. 第二轮：流式调用，带工具结果
+                ToolResponseMessage toolMsg = ToolResponseMessage.builder()
+                        .responses(toolResponses).build();
+                List<Message> round2Messages = new ArrayList<>(messages);
+                round2Messages.add(assistantMessage);
+                round2Messages.add(toolMsg);
+
+                Flux<String> flux = chatClient.prompt(new Prompt(round2Messages))
+                        .stream().content();
+
+                flux.subscribe(
+                        chunk -> {
+                            fullReply.append(chunk);
+                            try {
+                                JSONObject json = new JSONObject();
+                                json.put("type", "text");
+                                json.put("content", chunk);
+                                emitter.send(SseEmitter.event()
+                                        .name("message")
+                                        .data(json.toJSONString()));
+                            } catch (IOException e) {
+                                // ignore
+                            }
+                        },
+                        error -> {
+                            try {
+                                JSONObject errJson = new JSONObject();
+                                errJson.put("type", "error");
+                                errJson.put("content", error.getMessage() != null ? error.getMessage() : "unknown");
+                                emitter.send(SseEmitter.event()
+                                        .name("error")
+                                        .data(errJson.toJSONString()));
+                            } catch (IOException e) {
+                                // ignore
+                            }
+                            emitter.completeWithError(error);
+                        },
+                        () -> {
+                            // 保存完整 AI 回复
+                            if (fullReply.length() > 0) {
+                                conversationService.saveMessage(userId, conversationId, "assistant",
+                                        fullReply.toString(), "text");
+                            }
+                            // 自动为首次对话生成标题
+                            autoGenerateTitleIfNeeded(conversationId, userId, messages, emitter);
+                            try {
+                                emitter.send(SseEmitter.event()
+                                        .name("done")
+                                        .data(""));
+                            } catch (IOException e) {
+                                // ignore
+                            }
+                            emitter.complete();
+                        }
+                );
+            } else {
+                // 9. 没有工具调用，直接返回文本
+                String replyText = assistantMessage.getText();
+                if (replyText != null) {
+                    fullReply.append(replyText);
+                    conversationService.saveMessage(userId, conversationId, "assistant",
+                            replyText, "text");
+
+                    JSONObject json = new JSONObject();
+                    json.put("type", "text");
+                    json.put("content", replyText);
+                    emitter.send(SseEmitter.event()
+                            .name("message")
+                            .data(json.toJSONString()));
+                }
+                // 自动为首次对话生成标题
+                autoGenerateTitleIfNeeded(conversationId, userId, messages, emitter);
+                emitter.send(SseEmitter.event().name("done").data(""));
+                emitter.complete();
+            }
 
         } catch (IllegalArgumentException e) {
             try {
@@ -202,7 +276,17 @@ public class AiServiceImpl implements AiService {
             }
             emitter.complete();
         } catch (Exception e) {
-            emitter.completeWithError(e);
+            try {
+                JSONObject errJson = new JSONObject();
+                errJson.put("type", "error");
+                errJson.put("content", e.getMessage() != null ? e.getMessage() : "服务器内部错误");
+                emitter.send(SseEmitter.event()
+                        .name("error")
+                        .data(errJson.toJSONString()));
+            } catch (IOException ex) {
+                // ignore
+            }
+            emitter.complete();
         }
 
         return emitter;
@@ -223,5 +307,61 @@ public class AiServiceImpl implements AiService {
             return MimeTypeUtils.parseMimeType("image/bmp");
         else // 默认 PNG（含 .png 和无后缀情况）
             return MimeTypeUtils.IMAGE_PNG;
+    }
+
+    /**
+     * 当对话标题为默认"新对话"时，根据用户首条消息自动生成标题
+     */
+    private void autoGenerateTitleIfNeeded(int conversationId, int userId,
+                                           List<Message> messages, SseEmitter emitter) {
+        try {
+            AiConversation conv = conversationService.getById(conversationId);
+            if (conv == null || !"新对话".equals(conv.getTitle())) return;
+
+            // 提取第一条用户消息的文本内容
+            String firstUserText = null;
+            for (Message msg : messages) {
+                if (msg instanceof UserMessage) {
+                    String content = msg.getText();
+                    try {
+                        JSONObject obj = JSONObject.parseObject(content);
+                        firstUserText = obj.getString("text");
+                    } catch (Exception e) {
+                        firstUserText = content;
+                    }
+                    if (firstUserText != null && !firstUserText.isEmpty()) break;
+                }
+            }
+
+            if (firstUserText == null || firstUserText.isEmpty()) return;
+
+            // 调用 AI 生成简短标题（3-10字）
+            String generated = chatClient.prompt()
+                    .system("你是一个对话标题生成器。根据用户的第一条消息，生成一个简洁的对话标题（3-10个字）。" +
+                            "直接输出标题，不要解释，不要引号，不要多余内容。")
+                    .user(firstUserText)
+                    .call()
+                    .content();
+
+            if (generated != null && !generated.isEmpty()) {
+                // 清理可能的引号和多余空白
+                generated = generated.replaceAll("[\"\"'']", "").trim();
+                if (generated.length() > 20) {
+                    generated = generated.substring(0, 20);
+                }
+                conversationService.updateTitle(userId, conversationId, generated);
+
+                // 通过 SSE 推送新标题到前端
+                JSONObject titleJson = new JSONObject();
+                titleJson.put("type", "title");
+                titleJson.put("content", generated);
+                emitter.send(SseEmitter.event()
+                        .name("message")
+                        .data(titleJson.toJSONString()));
+            }
+        } catch (Exception e) {
+            // 标题生成失败不影响主流程，仅打印日志
+            System.err.println("自动生成对话标题失败: " + e.getMessage());
+        }
     }
 }

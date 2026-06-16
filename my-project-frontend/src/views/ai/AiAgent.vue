@@ -32,7 +32,7 @@
 
     <!-- 右侧聊天区 -->
     <div class="chat-area">
-      <div class="messages-container" ref="messagesRef">
+      <div class="messages-container" ref="messagesRef" v-loading="switchLoading" element-loading-text="切换中...">
         <div v-if="messages.length === 0" class="welcome-placeholder">
           <div class="welcome-icon">🤖</div>
           <h2>校园AI助手</h2>
@@ -46,14 +46,14 @@
 
         <div v-for="(msg, idx) in messages" :key="idx"
              class="message-wrapper"
-             :class="msg.role === 'user' ? 'user-message' : 'assistant-message'">
-          <div class="avatar">
+             :class="msg.role === 'user' ? 'user-message' : msg.role === 'tool' ? 'tool-message' : 'assistant-message'">
+          <div class="avatar" v-if="msg.role !== 'tool'">
             <el-avatar :size="36" v-if="msg.role === 'assistant'" icon="ChatDotSquare" />
             <el-avatar :size="36" v-else :src="store.user.avatar ? store.avatarUrl : undefined">
               {{ store.user.username?.[0]?.toUpperCase() }}
             </el-avatar>
           </div>
-          <div class="message-bubble">
+          <div class="message-bubble" :class="{ 'tool-bubble': msg.role === 'tool' }">
             <div class="message-content" v-html="renderMarkdown(msg.content)"></div>
             <div v-if="idx === messages.length - 1 && isLoading" class="typing-indicator">
               <span class="dot"></span><span class="dot"></span><span class="dot"></span>
@@ -126,6 +126,7 @@ const isLoading = ref(false)
 const enableWebSearch = ref(false)
 const uploadedImages = ref([])
 const messagesRef = ref(null)
+const switchLoading = ref(false)
 
 onMounted(() => {
   loadConversations()
@@ -154,13 +155,14 @@ function createNewConversation() {
 function switchConversation(id) {
   if (isLoading.value) return
   activeConversationId.value = id
-  messages.value = []
+  switchLoading.value = true
   apiConversationMessages(id, data => {
     messages.value = (data || []).map(m => ({
       role: m.type,
       content: parseMessageContent(m.text),
       messageType: m.messageType
     }))
+    switchLoading.value = false
     scrollToBottom()
   })
 }
@@ -255,6 +257,29 @@ async function sendMessage() {
       () => {
         isLoading.value = false
         loadConversations()
+      },
+      (toolData) => {
+        // 显示工具调用提示
+        const toolName = toolData.tool || ''
+        const input = toolData.input?.keyword || toolData.input?.text || ''
+        let label = ''
+        if (toolName.includes('web_search') || toolName.includes('WebSearch')) {
+          label = input ? `🔍 正在搜索「${input}」...` : '🔍 正在搜索互联网...'
+        } else if (toolName.includes('search')) {
+          label = input ? `📝 正在搜索论坛「${input}」...` : '📝 正在搜索论坛帖子...'
+        } else {
+          label = `🛠️ 正在调用工具: ${toolName}`
+        }
+        messages.value.splice(messages.value.length - 1, 0, {
+          role: 'tool',
+          content: label
+        })
+        scrollToBottom()
+      },
+      (newTitle) => {
+        // 收到自动生成的对话标题，更新侧边栏
+        const conv = conversations.value.find(c => c.id === activeConversationId.value)
+        if (conv) conv.title = newTitle
       }
   )
 }
@@ -276,7 +301,9 @@ function scrollToBottom() {
 <style scoped lang="less">
 .ai-agent-container {
   display: flex;
-  height: calc(100vh - 105px);
+  height: 100%;
+  min-height: calc(100vh - 105px);
+  max-height: calc(100vh - 105px);
   background: var(--el-bg-color-page);
   border-radius: 8px;
   overflow: hidden;
@@ -345,6 +372,7 @@ function scrollToBottom() {
 
 .chat-area {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--el-bg-color);
@@ -352,6 +380,7 @@ function scrollToBottom() {
 
 .messages-container {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 24px 48px;
 }
@@ -414,6 +443,23 @@ function scrollToBottom() {
     .message-bubble {
       background: var(--el-fill-color-light);
       border-radius: 18px 18px 18px 4px;
+    }
+  }
+
+  &.tool-message {
+    justify-content: center;
+    margin-bottom: 4px;
+
+    .message-bubble {
+      background: transparent;
+      padding: 4px 12px;
+      max-width: 100%;
+
+      .message-content {
+        font-size: 12px;
+        color: var(--el-text-color-secondary);
+        text-align: center;
+      }
     }
   }
 

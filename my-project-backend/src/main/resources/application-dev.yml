@@ -1,16 +1,21 @@
 # 开发环境配置
+logging:
+  level:
+    com.example.filter.FlowLimitingFilter: DEBUG
 springdoc:
   paths-to-match: /api/**
   swagger-ui:
     operations-sorter: alpha
 spring:
+  config:
+    import: "optional:file:./.secrets.properties"
   data:
     redis:
       database: 1
   mail:
     host: smtp.163.com
     username: javastudy111@163.com
-    password: SFxfE39P9Wf2icKi
+    password: ${MAIL_PASSWORD:placeholder}
   rabbitmq:
     addresses: localhost
     username: admin
@@ -45,9 +50,9 @@ spring:
     verify:
       mail-limit: 60
     flow:
-      period: 1
-      limit: 500
-      block: 3
+      period: 3
+      limit: 3000
+      block: 5
     cors:
       origin: '*'
       credentials: false
@@ -61,7 +66,7 @@ spring:
     key: 1f0ad6b3bd38450e8cc7d7e1a5a293db
   ai:
     deepseek:
-      api-key: '***REMOVED***'
+      api-key: ${DEEPSEEK_API_KEY:placeholder}
       base-url: 'https://api.deepseek.com'
     tavily:
-      api-key: 'your-tavily-api-key-placeholder'
+      api-key: ${TAVILY_API_KEY:placeholder}

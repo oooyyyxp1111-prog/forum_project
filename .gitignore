@@ -2,3 +2,6 @@
 log/
 .VSCodeCounter/
 doc/
+
+.playwright-mcp
+*.png
